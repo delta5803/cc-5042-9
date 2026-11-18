@@ -410,6 +410,79 @@ async function main() {
       assert.equal(s.params.fontSize, 44);
     });
 
+    await check('curved-text workflow: drag curve, edit text, verify glyph order and baseline direction', async () => {
+      // Reset to a known document so the scenario starts from the default curve.
+      const defaultP = await defaultPath();
+      await setPath(defaultP);
+      await setParams({
+        text: 'curve workflow q́ ffi', fontSize: 48, align: 'start', overflow: 'clip',
+        startOffset: 0, showBaseline: true, showTangents: true,
+      });
+      await page.waitForTimeout(400);
+      const before = await state();
+      assert.equal(before.ok, true);
+
+      // 1. Entering the app shows a live run status (glyph count and path length).
+      const statusBefore = await page.locator('#status-shaping').textContent();
+      assert.match(statusBefore, /glyphs from/);
+      assert.match(await page.locator('#status-metrics').textContent(), /path /);
+
+      // 2. Drag an orange anchor (node 1) to bend the curve; glyph arcs/angles move.
+      const anchor = page.locator('#stage-svg .anchor[data-node="1"]');
+      const box = await anchor.boundingBox();
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width / 2 - 55, box.y + box.height / 2 + 60, { steps: 12 });
+      await page.mouse.up();
+      await page.waitForTimeout(300);
+      const dragged = await state();
+      assert.notDeepEqual(dragged.pathParams.nodes[1], before.pathParams.nodes[1], 'node 1 should move');
+      // The arc-0 anchor keeps its tangent because the start node did not move;
+      // glyphs further along the moved segment must change heading with the curve.
+      const beforeAngles = before.glyphs.map((g) => g.angleDeg);
+      const draggedAngles = dragged.glyphs.map((g) => g.angleDeg);
+      assert.equal(draggedAngles[0], beforeAngles[0], 'start-node tangent stays fixed');
+      assert.ok(draggedAngles.some((a, i) => Math.abs(a - beforeAngles[i]) > 1e-6), 'some glyph heading must follow the bent curve');
+
+      // 3. Edit the text in the panel; shaping and glyph arrangement update.
+      await page.fill('#text-input', 'edited curve text');
+      await page.waitForTimeout(400);
+      const edited = await state();
+      assert.equal(edited.params.text, 'edited curve text');
+      assert.ok(edited.glyphs.length > 3, 'edited text should place multiple glyphs');
+      const arcs = edited.glyphs.map((g) => g.arc);
+      for (let i = 1; i < arcs.length; i++) assert.ok(arcs[i] >= arcs[i - 1] - 1e-9, 'glyphs follow baseline in order');
+
+      // 4. Baseline direction: each rendered glyph heading equals atan2(tangent),
+      //    and the visible baseline path still carries all cubic segments.
+      for (const g of edited.glyphs) {
+        const expected = (Math.atan2(g.tangent.y, g.tangent.x) * 180 / Math.PI + 360) % 360;
+        assert.ok(Math.abs(expected - g.angleDeg) < 1e-9, 'glyph heading must match baseline tangent');
+      }
+      const baselineD = await page.locator('#stage-svg .baseline').getAttribute('d');
+      assert.ok((baselineD.match(/C/g) || []).length >= edited.pathParams.nodes.length - 1, 'baseline keeps every cubic');
+      const glyphPaths = await page.locator('#stage-svg .glyphs path').count();
+      assert.ok(glyphPaths >= edited.glyphs.length - 1, 'glyph outlines are rendered along the curve');
+
+      // 5. Anomaly visibility: force an overflow error and confirm it is surfaced,
+      //    not hidden behind a default/empty render.
+      await setParams({ text: 'overflow '.repeat(40), overflow: 'error' });
+      await page.waitForTimeout(350);
+      const broken = await state();
+      assert.equal(broken.ok, false);
+      assert.equal(broken.layout.error.code, 'text-overflow');
+      assert.match(await page.locator('#diag-list').textContent(), /text-overflow/);
+      assert.match(await page.locator('#status-shaping').textContent(), /error: text-overflow/);
+      assert.equal(await page.locator('#stage-svg .glyphs path').count(), 0, 'no glyphs silently rendered under an error');
+      const badge = await page.locator('#diag-count').textContent();
+      assert.notEqual(badge, '0', 'the anomaly badge must flag the error');
+
+      // Restore a healthy document for subsequent checks.
+      await setPath(defaultP);
+      await setParams({ text: 'curve workflow q́ ffi', fontSize: 48, align: 'start', overflow: 'clip' });
+      await page.waitForTimeout(300);
+    });
+
     await check('no console errors during the run', async () => {
       assert.deepEqual(consoleErrors, []);
     });

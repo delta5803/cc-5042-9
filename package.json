@@ -10,7 +10,9 @@
     "preview": "vite preview --host 0.0.0.0",
     "test": "node --test test/*.test.mjs",
     "test:ui": "node test/ui.run.mjs",
-    "cli": "node cli/curvetext.mjs"
+    "cli": "node cli/curvetext.mjs",
+    "position-data": "node cli/position-data.mjs",
+    "verify": "node cli/verify-curve-text.mjs"
   },
   "dependencies": {
     "@napi-rs/canvas": "^0.1.80",

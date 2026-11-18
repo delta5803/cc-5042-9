@@ -11,7 +11,8 @@ per-character rotation, or a fixed letter-spacing approximation.
 
 ## Graphical entry point (primary)
 
-**Curved text is edited in the browser app.**
+**Curved text is edited in the browser app.** A script alone is not curved
+text — the editor below is how you start it, drag the curve and edit the text.
 
 ```bash
 npm install
@@ -20,6 +21,11 @@ npm run dev
 
 Open **<http://localhost:5173>** (or the URL Vite prints, e.g.
 `http://localhost:5173/`). This is the graphical entry point for curved text.
+In the vector editing window you can drag an orange node to reshape the
+curve, type in the text area, and watch the glyphs re-flow along the baseline
+with their tangent direction shown live; the right-hand diagnostics panel
+surfaces any shaping, overflow, cusp or tangent-fallback anomaly next to the
+measured glyph arrangement and baseline direction.
 
 The editor is a three-column workbench:
 
@@ -103,6 +109,33 @@ overflow under `--overflow error`), `4` file/IO error.
 cluster mapping, and the length-table and metrics blocks — the same numbers the
 UI shows, so batch jobs can be checked against the editor.
 
+### Contract tooling
+
+The maintained typesetting contract — arc-length origin, baseline offset and
+frames, screen-up normals, mixed fonts, combining marks, reversal and overflow
+— lives in [`docs/TYPESETTING.md`](docs/TYPESETTING.md), implemented by
+`src/core/contract.js`. Two CLIs operate on it:
+
+```bash
+# Positioning data from the same text and curve, with an embedded contract check
+node cli/position-data.mjs --text "office ffi — q́" --out record.json
+
+# Validate a document, including the geometric reversal rules
+node cli/verify-curve-text.mjs --doc saved.json
+
+# Reproduce a record in a new environment (diffs every anchor and frame)
+node cli/verify-curve-text.mjs --position-data record.json
+```
+
+The validator re-derives each glyph anchor (`blockStart + scale × pen`
+distance), anchor point, tangent, screen-up normal and angle from the current
+evaluator and compares them with the produced/recorded evidence. It never
+substitutes a default to force a pass — a failed layout, zero placed glyphs, a
+missing curve or any numeric mismatch exits `5` with the offending check
+printed. Positioning records embed the authored curve, so reproduction is
+self-contained. Exit codes: `0` holds, `2` usage, `3` layout error, `4` IO,
+`5` contract violation.
+
 ---
 
 ## Tests
@@ -121,6 +154,11 @@ The Node suite covers:
 - uniform vs adaptive arc tables and precision control;
 - clip / extend / error overflow semantics and boundary clipping;
 - alignment, start offset, and path-reversal consistency;
+- the typesetting contract (`test/contract.test.mjs`): glyph anchors and
+  along-path distances recomputed from the evaluator, combining-mark
+  attachment, ligature clusters, geometric reversal (point identity
+  `s ↔ L − s`, negated tangents, swapped endpoints), extend anchors, and
+  negative cases proving tampered or empty output is never masked;
 - parameter reproduction through documents, query strings, and the CLI;
 - SVG vector output (no `<text>`), clip paths, and canvas rasterization.
 
@@ -142,6 +180,9 @@ into a sysroot and adjust that path in `test/ui.run.mjs`.
 
 ```
 index.html              browser entry point (graphical curved-text editor)
+docs/
+  TYPESETTING.md        maintained typesetting contract (arcs, frames,
+                        baseline offset, mixed fonts, reversal, overflow)
 src/
   main.js               UI wiring, stage interaction, history, export
   state.js              document model, defaults, query serialization
@@ -149,10 +190,13 @@ src/
   geometry.js           Bézier math, arc-length tables, tangents, cusps
   core/shaping.js       HarfBuzz shaping, bidi/script runs, clusters
   core/layout.js        advance→arc placement, overflow, metrics, warnings
+  core/contract.js      contract verification (anchors, distances, reversal)
   core/render.js        SVG scene + canvas rasterizer (shared)
   core/pathedit.js      node/control editing, split, reverse, hit-testing
   core/platform.js      Node/browser font + HarfBuzz loading
 cli/curvetext.mjs       command-line assist (SVG/PNG/JSON reports)
+cli/position-data.mjs   positioning-data generator (anchors + arc evidence)
+cli/verify-curve-text.mjs  curve-text validator and reproduction checker
 public/fonts/           bundled fonts with licenses
 public/vendor/harfbuzz/ HarfBuzz WASM build
 test/                   node:test suites + Playwright UI runner
