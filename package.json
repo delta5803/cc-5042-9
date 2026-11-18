@@ -1,0 +1,24 @@
+{
+  "name": "envelope-curve-type",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Shaped text on editable Bezier paths with real arc-length layout, print-ready SVG/PNG output.",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "test": "node --test test/*.test.mjs",
+    "test:ui": "node test/ui.run.mjs",
+    "cli": "node cli/curvetext.mjs"
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "^0.1.80",
+    "bidi-js": "^1.1.0"
+  },
+  "devDependencies": {
+    "harfbuzzjs": "^1.6.4",
+    "playwright": "^1.65.1",
+    "vite": "^8.3.8"
+  }
+}

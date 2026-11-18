@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Envelope — curved type on Bézier paths</title>
+  <meta name="description" content="Shaped text placed along editable Bézier paths with real arc-length layout, cluster-preserving ligatures and marks, and print-ready SVG/PNG export."/>
+  <link rel="stylesheet" href="/src/styles.css"/>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 48 28" aria-hidden="true" class="brand-mark"><path d="M2 24C10 4 18 2 24 14S38 26 46 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      <div>
+        <h1>Envelope</h1>
+        <p>shaped type · Bézier paths · print geometry</p>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <button id="btn-undo" class="ghost" title="Undo (Ctrl+Z)" disabled>Undo</button>
+      <button id="btn-redo" class="ghost" title="Redo (Ctrl+Shift+Z)" disabled>Redo</button>
+      <span class="sep"></span>
+      <button id="btn-svg" class="ghost">Export SVG</button>
+      <button id="btn-png" class="ghost">Export PNG</button>
+      <button id="btn-json" class="ghost">Save JSON</button>
+      <label class="ghost file">Load JSON<input id="file-json" type="file" accept="application/json,.json" hidden/></label>
+      <button id="btn-fit" class="ghost" title="Fit path to view">Fit</button>
+    </div>
+  </header>
+
+  <div id="app" class="layout" hidden>
+    <aside class="panel panel-left" aria-label="Text and font controls">
+      <section class="group">
+        <div class="group-head">
+          <h2>Text</h2>
+          <span id="text-stats" class="pill"></span>
+        </div>
+        <textarea id="text-input" rows="3" spellcheck="false" aria-label="Text to place on the path"></textarea>
+        <div class="row wrap">
+          <label class="field"><span>Font</span><select id="font-select"></select></label>
+          <label class="field tiny"><span>Size</span><input id="font-size" type="number" min="4" max="400" step="1"/></label>
+        </div>
+        <label class="field" id="wght-field"><span>Weight <b id="wght-value">500</b></span><input id="font-wght" type="range" min="100" max="900" step="10"/></label>
+        <div class="row wrap">
+          <label class="field"><span>Direction</span>
+            <select id="direction">
+              <option value="auto">Auto (bidi)</option>
+              <option value="ltr">LTR</option>
+              <option value="rtl">RTL</option>
+            </select>
+          </label>
+          <label class="field tiny"><span>Language</span><input id="language" type="text" value="en" maxlength="12"/></label>
+        </div>
+        <div class="row wrap toggles">
+          <label class="check"><input id="feat-liga" type="checkbox" checked/><span>Ligatures <code>liga</code></span></label>
+          <label class="check"><input id="feat-kern" type="checkbox" checked/><span>Kerning <code>kern</code></span></label>
+        </div>
+      </section>
+
+      <section class="group">
+        <h2>Placement</h2>
+        <div class="row wrap">
+          <label class="field"><span>Align</span>
+            <select id="align">
+              <option value="start">Start</option>
+              <option value="center">Center</option>
+              <option value="end">End</option>
+            </select>
+          </label>
+          <label class="field"><span>Overflow</span>
+            <select id="overflow">
+              <option value="clip">Clip at path ends</option>
+              <option value="extend">Extend along tangent</option>
+              <option value="error">Error if it does not fit</option>
+            </select>
+          </label>
+        </div>
+        <label class="field"><span>Start offset <b id="offset-value">10</b> px</span><input id="start-offset" type="range" min="0" max="1200" step="1"/></label>
+        <div class="segmented" role="group" aria-label="Path direction">
+          <button id="btn-reverse" data-dir="forward">Path forward →</button>
+          <button id="btn-reverse-toggle" data-dir="reverse">Path reversed ←</button>
+        </div>
+        <p class="hint" id="reverse-hint">Reversing the path mirrors arcs and negates tangents; alignment follows the drawn direction.</p>
+      </section>
+
+      <section class="group">
+        <div class="group-head">
+          <h2>Length table</h2>
+          <span id="lt-summary" class="pill"></span>
+        </div>
+        <div class="row wrap">
+          <label class="field"><span>Mode</span>
+            <select id="lt-mode">
+              <option value="adaptive">Adaptive</option>
+              <option value="uniform">Uniform</option>
+            </select>
+          </label>
+          <label class="field tiny" id="lt-tol-field"><span>Tolerance</span><input id="lt-tol" type="number" min="0.001" max="5" step="0.01"/></label>
+          <label class="field tiny" id="lt-samples-field"><span>Samples</span><input id="lt-samples" type="number" min="4" max="2000" step="1"/></label>
+        </div>
+        <p class="hint">Arc-length samples are rebuilt from the curve on every edit. Smaller tolerance = more samples and more exact advance mapping.</p>
+      </section>
+
+      <section class="group">
+        <h2>Path nodes</h2>
+        <p class="hint">Drag <b>orange</b> dots to move anchors and <b>grey</b> dots to bend curves. Double-click the baseline to insert a node; <kbd>Alt</kbd>-click a node to delete it.</p>
+        <div class="node-list" id="node-list"></div>
+      </section>
+    </aside>
+
+    <main class="stage" aria-label="Curve text canvas">
+      <div class="stage-toolbar">
+        <div class="overlay toggles">
+          <label class="check"><input id="show-baseline" type="checkbox" checked/><span>Baseline</span></label>
+          <label class="check"><input id="show-tangents" type="checkbox" checked/><span>Tangents</span></label>
+          <label class="check"><input id="show-boxes" type="checkbox"/><span>Advance boxes</span></label>
+          <label class="check"><input id="show-outlines" type="checkbox"/><span>Outline strokes</span></label>
+          <label class="check"><input id="show-clusters" type="checkbox" checked/><span>Cluster readout</span></label>
+        </div>
+        <div class="zoom">
+          <button id="zoom-out" class="ghost" title="Zoom out">−</button>
+          <span id="zoom-label">100%</span>
+          <button id="zoom-in" class="ghost" title="Zoom in">+</button>
+        </div>
+      </div>
+      <div id="canvas-wrap" class="canvas-wrap">
+        <svg id="stage-svg" xmlns="http://www.w3.org/2000/svg" role="application" aria-label="Editable curved text"></svg>
+        <div id="toast" class="toast" hidden></div>
+      </div>
+      <div class="statusbar">
+        <span id="status-shaping" class="status-item"></span>
+        <span id="status-metrics" class="status-item"></span>
+        <span id="status-cursor" class="status-item"></span>
+      </div>
+    </main>
+
+    <aside class="panel panel-right" aria-label="Diagnostics">
+      <section class="group">
+        <div class="group-head">
+          <h2>Shaping</h2>
+          <span id="cluster-toggle-wrap" class="pill muted">real</span>
+        </div>
+        <dl class="kv" id="shaping-kv"></dl>
+        <div id="run-list" class="run-list"></div>
+      </section>
+      <section class="group">
+        <div class="group-head">
+          <h2>Clusters</h2>
+          <span id="cluster-count" class="pill"></span>
+        </div>
+        <div id="cluster-list" class="cluster-list"></div>
+      </section>
+      <section class="group">
+        <div class="group-head">
+          <h2>Diagnostics</h2>
+          <span id="diag-count" class="pill"></span>
+        </div>
+        <div id="diag-list" class="diag-list"></div>
+      </section>
+      <section class="group">
+        <h2>Measured</h2>
+        <dl class="kv" id="metrics-kv"></dl>
+      </section>
+    </aside>
+  </div>
+
+  <div id="loading" class="loading">
+    <div class="spinner" aria-hidden="true"></div>
+    <p>Loading HarfBuzz and fonts…</p>
+  </div>
+
+  <div id="fatal" class="fatal" hidden>
+    <h2>Could not start</h2>
+    <p id="fatal-message"></p>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

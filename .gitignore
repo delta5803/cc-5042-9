@@ -1,6 +1,7 @@
 # solo-manager GitHub sync ignores
 node_modules/
 vendor/
+!public/vendor/
 dist/
 build/
 .next/
